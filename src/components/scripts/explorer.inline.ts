@@ -1,7 +1,8 @@
-// @ts-nocheck - Required for inline scripts that run in browser context
+
+ // @ts-nocheck - Required for inline scripts that run in browser context
 import { simplifySlug, resolveBasePath } from "@quartz-community/utils/path";
 
-// Простая реализация trie-узла для клиентской части
+// Узел дерева проводника
 class FileTrieNode {
   constructor(segments, data) {
     this.children = [];
@@ -10,14 +11,19 @@ class FileTrieNode {
     this.isFolder = false;
     this.fileSegmentHint = null;
     this.displayNameOverride = undefined;
-    // ===== ИЗМЕНЕНО: поля порядка =====
+
     this.noteOrder = data?.frontmatter?.noteOrder;
     this.folderOrder = data?.frontmatter?.folderOrder;
   }
 
   get displayName() {
-    if (this.displayNameOverride !== undefined) return this.displayNameOverride;
-    const nonIndexTitle = this.data?.title === "index" ? undefined : this.data?.title;
+    if (this.displayNameOverride !== undefined) {
+      return this.displayNameOverride;
+    }
+
+    const nonIndexTitle =
+      this.data?.title === "index" ? undefined : this.data?.title;
+
     return nonIndexTitle || this.fileSegmentHint || this.slugSegment || "";
   }
 
@@ -43,70 +49,120 @@ class FileTrieNode {
 
   insert(path, file) {
     if (path.length === 0) return;
+
     this.isFolder = true;
     const segment = path[0];
+
     if (path.length === 1) {
       if (segment === "index") {
-        if (!this.data) this.data = file;
+        if (!this.data) {
+          this.data = file;
+          this.noteOrder = file?.frontmatter?.noteOrder;
+          this.folderOrder = file?.frontmatter?.folderOrder;
+        }
       } else {
         this.makeChild(path, file);
       }
     } else {
       let child = this.children.find((c) => c.slugSegment === segment);
+
       if (!child) {
         child = this.makeChild(path, undefined);
       }
-      const fileParts = (file.filePath || file.slug || "").split("/");
-      child.fileSegmentHint = fileParts[fileParts.length - path.length];
+
+      const fileParts = (file?.filePath || file?.slug || "").split("/");
+      child.fileSegmentHint =
+        fileParts[fileParts.length - path.length] || child.fileSegmentHint;
+
       child.insert(path.slice(1), file);
     }
   }
 
   add(file) {
-    this.insert(file.slug.split("/"), file);
+    if (!file || typeof file.slug !== "string" || !file.slug) {
+      console.warn("[custom-explorer] Пропущен элемент без slug:", file);
+      return;
+    }
+
+    const segments = file.slug.split("/").filter(Boolean);
+
+    if (segments.length === 0) return;
+
+    this.insert(segments, file);
   }
 
   sort(sortFn) {
     this.children.sort(sortFn);
-    this.children.forEach((c) => c.sort(sortFn));
+    this.children.forEach((child) => child.sort(sortFn));
   }
 
   filter(filterFn) {
     this.children = this.children.filter(filterFn);
-    this.children.forEach((c) => c.filter(filterFn));
+    this.children.forEach((child) => child.filter(filterFn));
   }
 
   map(mapFn) {
     mapFn(this);
-    this.children.forEach((c) => c.map(mapFn));
+    this.children.forEach((child) => child.map(mapFn));
   }
 
   static fromEntries(entries) {
     const trie = new FileTrieNode([], null);
-    entries.forEach(([, entry]) => trie.add(entry));
+
+    entries.forEach(([slug, entry]) => {
+      // ВАЖНО: slug берётся из ключа contentIndex.json.
+      // В самом entry этого поля может не быть.
+      const normalizedSlug = String(slug).replace(/^\/+|\/+$/g, "");
+
+      if (!normalizedSlug || !entry || typeof entry !== "object") {
+        console.warn(
+          "[custom-explorer] Пропущена некорректная запись:",
+          slug,
+          entry,
+        );
+        return;
+      }
+
+      trie.add({
+        ...entry,
+        slug: normalizedSlug,
+      });
+    });
+
     return trie;
   }
 }
 
-// ===== ИЗМЕНЕНО: клиентская функция сортировки =====
+// Сортировка по noteOrder и folderOrder
 const defaultSortFn = (a, b) => {
   const aFm = a.data?.frontmatter ?? a.data;
   const bFm = b.data?.frontmatter ?? b.data;
 
-  const aOrder = a.isFolder ? aFm?.folderOrder : aFm?.noteOrder;
-  const bOrder = b.isFolder ? bFm?.folderOrder : bFm?.noteOrder;
+  const aOrder = a.isFolder
+    ? a.folderOrder ?? aFm?.folderOrder
+    : a.noteOrder ?? aFm?.noteOrder;
 
-  const aHas = typeof aOrder === "number";
-  const bHas = typeof bOrder === "number";
+  const bOrder = b.isFolder
+    ? b.folderOrder ?? bFm?.folderOrder
+    : b.noteOrder ?? bFm?.noteOrder;
 
-  // 1) С явным порядком — выше
+  const aHas = typeof aOrder === "number" && Number.isFinite(aOrder);
+  const bHas = typeof bOrder === "number" && Number.isFinite(bOrder);
+
+  // Сначала элементы с явно заданным порядком
   if (aHas && !bHas) return -1;
   if (!aHas && bHas) return 1;
-  // 2) Оба с порядком — по возрастанию
-  if (aHas && bHas) return aOrder - bOrder;
-  // 3) Стандартное поведение
+
+  // Если порядок задан у обоих элементов
+  if (aHas && bHas && aOrder !== bOrder) {
+    return aOrder - bOrder;
+  }
+
+  // Папки перед файлами
   if (!a.isFolder && b.isFolder) return 1;
   if (a.isFolder && !b.isFolder) return -1;
+
+  // Для элементов без заданного порядка — по алфавиту
   return a.displayName.localeCompare(b.displayName, undefined, {
     numeric: true,
     sensitivity: "base",
@@ -122,22 +178,23 @@ function processTrie(trie, sortFn, filterFn, mapFn) {
   return trie;
 }
 
-// Отрисовка дерева в DOM (сохранена логика апстрима)
+// Отрисовка дерева в DOM
 function renderExplorer(trie, container) {
   function renderNode(node) {
     if (!node.isFolder) {
       const li = document.createElement("li");
       li.classList.add("file");
+
       const a = document.createElement("a");
       a.href = resolveBasePath(node.slug);
       a.textContent = node.displayName;
+
       li.appendChild(a);
       return li;
     }
 
     const li = document.createElement("li");
-    li.classList.add("folder");
-    li.classList.add("collapsed");
+    li.classList.add("folder", "collapsed");
 
     const button = document.createElement("button");
     button.type = "button";
@@ -158,40 +215,75 @@ function renderExplorer(trie, container) {
 
     const ul = document.createElement("ul");
     ul.classList.add("folder-content");
-    node.children.forEach((child) => ul.appendChild(renderNode(child)));
+
+    node.children.forEach((child) => {
+      ul.appendChild(renderNode(child));
+    });
 
     button.addEventListener("click", () => {
       const isOpen = li.classList.toggle("open");
       li.classList.toggle("collapsed", !isOpen);
-      button.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      button.setAttribute("aria-expanded", String(isOpen));
     });
 
     li.appendChild(button);
     li.appendChild(ul);
+
     return li;
   }
 
-  container.innerHTML = "";
+  container.replaceChildren();
+
   const rootUl = document.createElement("ul");
   rootUl.classList.add("explorer-ul");
-  trie.children.forEach((child) => rootUl.appendChild(renderNode(child)));
+
+  trie.children.forEach((child) => {
+    rootUl.appendChild(renderNode(child));
+  });
+
   container.appendChild(rootUl);
 }
 
 async function setupExplorer() {
-  // Получаем данные из index.json (или другого эндпоинта в вашем форке)
-  const base = document.body.dataset.baseUri || "";
-  const url = `${base}/static/contentIndex.json`;
-  const res = await fetch(url);
-  const data = await res.json();
-
-  const trie = FileTrieNode.fromEntries(Object.entries(data));
-  processTrie(trie, defaultSortFn, defaultFilterFn, undefined);
-
   const containers = document.querySelectorAll(".explorer-tree");
-  containers.forEach((c) => renderExplorer(trie, c));
+
+  if (containers.length === 0) return;
+
+  try {
+    const base = document.body.dataset.baseUri || "";
+    const url = `${base}/static/contentIndex.json`;
+
+    const res = await fetch(url);
+
+    if (!res.ok) {
+      throw new Error(
+        `Не удалось загрузить ${url}: HTTP ${res.status}`,
+      );
+    }
+
+    const data = await res.json();
+
+    if (!data || typeof data !== "object") {
+      throw new Error("contentIndex.json содержит некорректные данные");
+    }
+
+    const trie = FileTrieNode.fromEntries(Object.entries(data));
+
+    processTrie(trie, defaultSortFn, defaultFilterFn, undefined);
+
+    containers.forEach((container) => {
+      renderExplorer(trie, container);
+    });
+
+    console.info(
+      `[custom-explorer] Дерево построено. Корневых элементов: ${trie.children.length}`,
+    );
+  } catch (error) {
+    console.error("[custom-explorer] Ошибка построения дерева:", error);
+  }
 }
 
+// Первоначальная загрузка и повторная инициализация при навигации Quartz
 document.addEventListener("nav", () => {
   setupExplorer();
 });
