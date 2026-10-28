@@ -1,4 +1,3 @@
-
  // @ts-nocheck - Required for inline scripts that run in browser context
 import { simplifySlug, resolveBasePath } from "@quartz-community/utils/path";
 
@@ -24,7 +23,12 @@ class FileTrieNode {
     const nonIndexTitle =
       this.data?.title === "index" ? undefined : this.data?.title;
 
-    return nonIndexTitle || this.fileSegmentHint || this.slugSegment || "";
+    return (
+      nonIndexTitle ||
+      this.fileSegmentHint ||
+      this.slugSegment ||
+      ""
+    );
   }
 
   set displayName(name) {
@@ -55,7 +59,7 @@ class FileTrieNode {
 
     if (path.length === 1) {
       if (segment === "index") {
-        if (!this.data) {
+        if (!this.data && file) {
           this.data = file;
           this.noteOrder = file?.frontmatter?.noteOrder;
           this.folderOrder = file?.frontmatter?.folderOrder;
@@ -64,15 +68,23 @@ class FileTrieNode {
         this.makeChild(path, file);
       }
     } else {
-      let child = this.children.find((c) => c.slugSegment === segment);
+      let child = this.children.find(
+        (item) => item.slugSegment === segment,
+      );
 
       if (!child) {
         child = this.makeChild(path, undefined);
       }
 
-      const fileParts = (file?.filePath || file?.slug || "").split("/");
+      const fileParts = (
+        file?.filePath ||
+        file?.slug ||
+        ""
+      ).split("/");
+
       child.fileSegmentHint =
-        fileParts[fileParts.length - path.length] || child.fileSegmentHint;
+        fileParts[fileParts.length - path.length] ||
+        child.fileSegmentHint;
 
       child.insert(path.slice(1), file);
     }
@@ -80,7 +92,10 @@ class FileTrieNode {
 
   add(file) {
     if (!file || typeof file.slug !== "string" || !file.slug) {
-      console.warn("[custom-explorer] Пропущен элемент без slug:", file);
+      console.warn(
+        "[custom-explorer] Пропущена запись без slug:",
+        file,
+      );
       return;
     }
 
@@ -110,18 +125,22 @@ class FileTrieNode {
     const trie = new FileTrieNode([], null);
 
     entries.forEach(([slug, entry]) => {
-      // ВАЖНО: slug берётся из ключа contentIndex.json.
-      // В самом entry этого поля может не быть.
-      const normalizedSlug = String(slug).replace(/^\/+|\/+$/g, "");
-
-      if (!normalizedSlug || !entry || typeof entry !== "object") {
+      if (!entry || typeof entry !== "object") {
         console.warn(
-          "[custom-explorer] Пропущена некорректная запись:",
+          "[custom-explorer] Некорректная запись индекса:",
           slug,
-          entry,
         );
         return;
       }
+
+      // В contentIndex.json slug является ключом записи.
+      // Добавляем его в объект перед построением дерева.
+      const normalizedSlug = String(slug).replace(
+        /^\/+|\/+$/g,
+        "",
+      );
+
+      if (!normalizedSlug) return;
 
       trie.add({
         ...entry,
@@ -133,7 +152,7 @@ class FileTrieNode {
   }
 }
 
-// Сортировка по noteOrder и folderOrder
+// Сортировка папок и файлов
 const defaultSortFn = (a, b) => {
   const aFm = a.data?.frontmatter ?? a.data;
   const bFm = b.data?.frontmatter ?? b.data;
@@ -146,35 +165,43 @@ const defaultSortFn = (a, b) => {
     ? b.folderOrder ?? bFm?.folderOrder
     : b.noteOrder ?? bFm?.noteOrder;
 
-  const aHas = typeof aOrder === "number" && Number.isFinite(aOrder);
-  const bHas = typeof bOrder === "number" && Number.isFinite(bOrder);
+  const aHas =
+    typeof aOrder === "number" && Number.isFinite(aOrder);
+  const bHas =
+    typeof bOrder === "number" && Number.isFinite(bOrder);
 
-  // Сначала элементы с явно заданным порядком
+  // Элементы с указанным порядком идут первыми.
   if (aHas && !bHas) return -1;
   if (!aHas && bHas) return 1;
 
-  // Если порядок задан у обоих элементов
+  // Сортировка по noteOrder или folderOrder.
   if (aHas && bHas && aOrder !== bOrder) {
     return aOrder - bOrder;
   }
 
-  // Папки перед файлами
-  if (!a.isFolder && b.isFolder) return 1;
+  // При одинаковом приоритете сначала папки.
   if (a.isFolder && !b.isFolder) return -1;
+  if (!a.isFolder && b.isFolder) return 1;
 
-  // Для элементов без заданного порядка — по алфавиту
-  return a.displayName.localeCompare(b.displayName, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
+  // Резервная сортировка по названию.
+  return a.displayName.localeCompare(
+    b.displayName,
+    undefined,
+    {
+      numeric: true,
+      sensitivity: "base",
+    },
+  );
 };
 
-const defaultFilterFn = (node) => node.slugSegment !== "tags";
+const defaultFilterFn = (node) =>
+  node.slugSegment !== "tags";
 
 function processTrie(trie, sortFn, filterFn, mapFn) {
   if (filterFn) trie.filter(filterFn);
   if (mapFn) trie.map(mapFn);
   if (sortFn) trie.sort(sortFn);
+
   return trie;
 }
 
@@ -244,46 +271,75 @@ function renderExplorer(trie, container) {
   container.appendChild(rootUl);
 }
 
+// Загрузка индекса и построение дерева
 async function setupExplorer() {
   const containers = document.querySelectorAll(".explorer-tree");
 
-  if (containers.length === 0) return;
+  if (containers.length === 0) {
+    console.warn(
+      "[custom-explorer] Контейнер .explorer-tree не найден",
+    );
+    return;
+  }
 
   try {
-    const base = document.body.dataset.baseUri || "";
-    const url = `${base}/static/contentIndex.json`;
+    // Учитываем базовый путь сайта на GitHub Pages.
+    const url = resolveBasePath("static/contentIndex.json");
 
-    const res = await fetch(url);
+    console.log(
+      "[custom-explorer] Загрузка индекса:",
+      url,
+    );
 
-    if (!res.ok) {
+    const response = await fetch(url);
+
+    if (!response.ok) {
       throw new Error(
-        `Не удалось загрузить ${url}: HTTP ${res.status}`,
+        `Не удалось загрузить ${url}: HTTP ${response.status}`,
       );
     }
 
-    const data = await res.json();
+    const data = await response.json();
 
     if (!data || typeof data !== "object") {
-      throw new Error("contentIndex.json содержит некорректные данные");
+      throw new Error(
+        "contentIndex.json содержит некорректные данные",
+      );
     }
 
-    const trie = FileTrieNode.fromEntries(Object.entries(data));
+    const entries = Object.entries(data);
 
-    processTrie(trie, defaultSortFn, defaultFilterFn, undefined);
+    console.log(
+      "[custom-explorer] Записей в индексе:",
+      entries.length,
+    );
+
+    const trie = FileTrieNode.fromEntries(entries);
+
+    processTrie(
+      trie,
+      defaultSortFn,
+      defaultFilterFn,
+      undefined,
+    );
 
     containers.forEach((container) => {
       renderExplorer(trie, container);
     });
 
-    console.info(
-      `[custom-explorer] Дерево построено. Корневых элементов: ${trie.children.length}`,
+    console.log(
+      "[custom-explorer] Дерево построено. Корневых элементов:",
+      trie.children.length,
     );
   } catch (error) {
-    console.error("[custom-explorer] Ошибка построения дерева:", error);
+    console.error(
+      "[custom-explorer] Ошибка построения дерева:",
+      error,
+    );
   }
 }
 
-// Первоначальная загрузка и повторная инициализация при навигации Quartz
+// Инициализация при первой загрузке и навигации Quartz.
 document.addEventListener("nav", () => {
   setupExplorer();
 });
