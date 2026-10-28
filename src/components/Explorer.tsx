@@ -107,7 +107,6 @@ export default ((userOpts?: Partial<ExplorerOptions>) => {
         <button
           type="button"
           class="explorer-toggle mobile-explorer hide-until-loaded"
-          aria-label={i18n(locale).components.explorer.toggleButton}
         >
           {/* Иконка SVG */}
           <svg
