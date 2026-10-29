@@ -115,7 +115,3 @@ npm run build
 ## Благодарности
 
 Основан на компоненте Explorer из [quartz-community/explorer](https://github.com/quartz-community/explorer) и адаптирован для пользовательской навигации по технической документации и сортировки.
-
-## Лицензия
-
-MIT. См. файл [LICENSE](LICENSE).
