@@ -115,7 +115,3 @@ Available checks are defined in `package.json`, including `npm run typecheck`, `
 ## Credits
 
 Based on the Explorer component from [quartz-community/explorer](https://github.com/quartz-community/explorer), adapted for custom documentation navigation and ordering.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
