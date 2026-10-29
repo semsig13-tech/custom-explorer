@@ -236,3 +236,25 @@ li:has(> .folder-outer:not(.open)) > .folder-container > svg {
     overscroll-behavior: contain;
   }
 }
+
+/* Prevent the mobile explorer from fading/masking its contents at the bottom.
+   Some Quartz/theme styles apply an overflow fade to scrollable sidebars. */
+@media all and (max-width: 800px) {
+  .page > #quartz-body .sidebar.left:has(.explorer),
+  .page > #quartz-body .sidebar.left:has(.explorer) .explorer,
+  .page > #quartz-body .sidebar.left:has(.explorer) .explorer-content,
+  .page > #quartz-body .sidebar.left:has(.explorer) .explorer-content > .explorer-ul {
+    -webkit-mask-image: none !important;
+    mask-image: none !important;
+    opacity: 1;
+    filter: none;
+  }
+
+  .page > #quartz-body .sidebar.left:has(.explorer)::before,
+  .page > #quartz-body .sidebar.left:has(.explorer)::after,
+  .page > #quartz-body .sidebar.left:has(.explorer) .explorer-content::before,
+  .page > #quartz-body .sidebar.left:has(.explorer) .explorer-content::after {
+    content: none !important;
+    display: none !important;
+  }
+}
