@@ -157,31 +157,46 @@ function renderTree(node, container, currentSlug, folderBehavior, savedState) {
 }
 
 function setupMobileExplorerToggle(explorer) {
-  const toggle = explorer.querySelector(".mobile-explorer");
+  const mobileToggle = explorer.querySelector(".mobile-explorer");
+  const desktopToggle = explorer.querySelector(".desktop-explorer");
   const quartzBody = document.querySelector("#quartz-body");
-  if (!toggle) return;
-
-  // Avoid registering duplicate listeners after Quartz SPA navigation.
-  if (toggle.dataset.mobileToggleInitialized === "true") return;
-  toggle.dataset.mobileToggleInitialized = "true";
 
   const isMobile = () => window.matchMedia("(max-width: 800px)").matches;
+
+  // Штатная кнопка заголовка на десктопе сворачивает/разворачивает дерево.
+  if (desktopToggle && desktopToggle.dataset.collapseInitialized !== "true") {
+    desktopToggle.dataset.collapseInitialized = "true";
+    desktopToggle.addEventListener("click", (event) => {
+      if (isMobile()) return;
+      event.preventDefault();
+      const collapsed = explorer.classList.toggle("collapsed");
+      desktopToggle.setAttribute("aria-expanded", String(!collapsed));
+      const content = explorer.querySelector(".explorer-content");
+      content?.setAttribute("aria-expanded", String(!collapsed));
+    });
+  }
+
+  if (!mobileToggle) return;
+
+  // Quartz SPA navigation may reuse existing DOM; avoid duplicate listeners.
+  if (mobileToggle.dataset.mobileToggleInitialized === "true") return;
+  mobileToggle.dataset.mobileToggleInitialized = "true";
+
   const closeMenu = () => {
     explorer.classList.add("collapsed");
     quartzBody?.classList.remove("lock-scroll");
-    toggle.setAttribute("aria-expanded", "false");
+    mobileToggle.setAttribute("aria-expanded", "false");
   };
   const openMenu = () => {
     explorer.classList.remove("collapsed");
     quartzBody?.classList.add("lock-scroll");
-    toggle.setAttribute("aria-expanded", "true");
+    mobileToggle.setAttribute("aria-expanded", "true");
   };
 
-  // On mobile, start closed. Without this, .explorer-content is rendered
-  // as a full-screen overlay immediately on page load.
+  // На мобильных устройствах дерево закрыто при первой загрузке.
   if (isMobile()) closeMenu();
 
-  toggle.addEventListener("click", (event) => {
+  mobileToggle.addEventListener("click", (event) => {
     if (!isMobile()) return;
     event.preventDefault();
     event.stopPropagation();
@@ -189,7 +204,7 @@ function setupMobileExplorerToggle(explorer) {
     else closeMenu();
   });
 
-  // Close the overlay when the user chooses a page link.
+  // Закрываем мобильное меню после выбора страницы.
   explorer.addEventListener("click", (event) => {
     if (!isMobile()) return;
     const target = event.target;
@@ -198,12 +213,13 @@ function setupMobileExplorerToggle(explorer) {
     }
   });
 
-  // Keep the mobile-only state from affecting the desktop layout.
+  // При переходе на десктоп возвращаем обычный вид.
   window.addEventListener("resize", () => {
     if (!isMobile()) {
       explorer.classList.remove("collapsed");
       quartzBody?.classList.remove("lock-scroll");
-      toggle.setAttribute("aria-expanded", "true");
+      mobileToggle.setAttribute("aria-expanded", "true");
+      desktopToggle?.setAttribute("aria-expanded", "true");
     } else {
       closeMenu();
     }
