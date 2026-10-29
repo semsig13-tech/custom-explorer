@@ -156,9 +156,64 @@ function renderTree(node, container, currentSlug, folderBehavior, savedState) {
   }
 }
 
+function setupMobileExplorerToggle(explorer) {
+  const toggle = explorer.querySelector(".mobile-explorer");
+  const quartzBody = document.querySelector("#quartz-body");
+  if (!toggle) return;
+
+  // Avoid registering duplicate listeners after Quartz SPA navigation.
+  if (toggle.dataset.mobileToggleInitialized === "true") return;
+  toggle.dataset.mobileToggleInitialized = "true";
+
+  const isMobile = () => window.matchMedia("(max-width: 800px)").matches;
+  const closeMenu = () => {
+    explorer.classList.add("collapsed");
+    quartzBody?.classList.remove("lock-scroll");
+    toggle.setAttribute("aria-expanded", "false");
+  };
+  const openMenu = () => {
+    explorer.classList.remove("collapsed");
+    quartzBody?.classList.add("lock-scroll");
+    toggle.setAttribute("aria-expanded", "true");
+  };
+
+  // On mobile, start closed. Without this, .explorer-content is rendered
+  // as a full-screen overlay immediately on page load.
+  if (isMobile()) closeMenu();
+
+  toggle.addEventListener("click", (event) => {
+    if (!isMobile()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (explorer.classList.contains("collapsed")) openMenu();
+    else closeMenu();
+  });
+
+  // Close the overlay when the user chooses a page link.
+  explorer.addEventListener("click", (event) => {
+    if (!isMobile()) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest(".explorer-content a")) {
+      closeMenu();
+    }
+  });
+
+  // Keep the mobile-only state from affecting the desktop layout.
+  window.addEventListener("resize", () => {
+    if (!isMobile()) {
+      explorer.classList.remove("collapsed");
+      quartzBody?.classList.remove("lock-scroll");
+      toggle.setAttribute("aria-expanded", "true");
+    } else {
+      closeMenu();
+    }
+  });
+}
+
 async function setupExplorer(event) {
   const explorers = document.querySelectorAll(".explorer");
   if (!explorers.length) return;
+  explorers.forEach(setupMobileExplorerToggle);
   try {
     const url = resolveBasePath("static/contentIndex.json");
     const response = await fetch(url);
