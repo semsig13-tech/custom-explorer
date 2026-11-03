@@ -70,15 +70,22 @@ class FileTrieNode {
 }
 
 const defaultSortFn = (a, b) => {
-  if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+  // Notes precede folders at every level, not only at the root.
+  if (a.isFolder !== b.isFolder) return a.isFolder ? 1 : -1;
+
   const aOrder = a.isFolder ? a.folderOrder : a.noteOrder;
   const bOrder = b.isFolder ? b.folderOrder : b.noteOrder;
   const aHasOrder = typeof aOrder === "number" && Number.isFinite(aOrder);
   const bHasOrder = typeof bOrder === "number" && Number.isFinite(bOrder);
+
   if (aHasOrder && !bHasOrder) return -1;
   if (!aHasOrder && bHasOrder) return 1;
   if (aHasOrder && bHasOrder && aOrder !== bOrder) return aOrder - bOrder;
-  return a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: "base" });
+
+  return a.displayName.localeCompare(b.displayName, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
 };
 
 // draft:true on an index.md does not hide its folder.
