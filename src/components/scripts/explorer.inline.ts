@@ -1,7 +1,7 @@
 // @ts-nocheck - Required for inline scripts that run in browser context
+
 import { simplifySlug, resolveBasePath } from "@quartz-community/utils/path";
 
-// Простая реализация trie-узла для клиентской части
 class FileTrieNode {
   constructor(segments, data) {
     this.children = [];
@@ -10,9 +10,8 @@ class FileTrieNode {
     this.isFolder = false;
     this.fileSegmentHint = null;
     this.displayNameOverride = undefined;
-    // ===== ИЗМЕНЕНО: поля порядка =====
     this.noteOrder = data?.frontmatter?.noteOrder;
-    this.folderOrder = data?.frontmatter?.folderOrder;
+    this.folderOrder = undefined;
   }
 
   get displayName() {
@@ -21,18 +20,14 @@ class FileTrieNode {
     return nonIndexTitle || this.fileSegmentHint || this.slugSegment || "";
   }
 
-  set displayName(name) {
-    this.displayNameOverride = name;
-  }
+  set displayName(name) { this.displayNameOverride = name; }
 
   get slug() {
     const path = this.slugSegments.join("/");
     return this.isFolder ? path + "/index" : path;
   }
 
-  get slugSegment() {
-    return this.slugSegments[this.slugSegments.length - 1] || "";
-  }
+  get slugSegment() { return this.slugSegments[this.slugSegments.length - 1] || ""; }
 
   makeChild(path, file) {
     const fullPath = [...this.slugSegments, path[0]];
@@ -45,41 +40,27 @@ class FileTrieNode {
     if (path.length === 0) return;
     this.isFolder = true;
     const segment = path[0];
+
     if (path.length === 1) {
       if (segment === "index") {
+        // index.md is stored as folder metadata, not as a separate child.
         if (!this.data) this.data = file;
       } else {
         this.makeChild(path, file);
       }
     } else {
       let child = this.children.find((c) => c.slugSegment === segment);
-      if (!child) {
-        child = this.makeChild(path, undefined);
-      }
+      if (!child) child = this.makeChild(path, undefined);
       const fileParts = (file.filePath || file.slug || "").split("/");
       child.fileSegmentHint = fileParts[fileParts.length - path.length];
       child.insert(path.slice(1), file);
     }
   }
 
-  add(file) {
-    this.insert(file.slug.split("/"), file);
-  }
-
-  sort(sortFn) {
-    this.children.sort(sortFn);
-    this.children.forEach((c) => c.sort(sortFn));
-  }
-
-  filter(filterFn) {
-    this.children = this.children.filter(filterFn);
-    this.children.forEach((c) => c.filter(filterFn));
-  }
-
-  map(mapFn) {
-    mapFn(this);
-    this.children.forEach((c) => c.map(mapFn));
-  }
+  add(file) { this.insert(file.slug.split("/"), file); }
+  sort(sortFn) { this.children.sort(sortFn); this.children.forEach((child) => child.sort(sortFn)); }
+  filter(filterFn) { this.children = this.children.filter(filterFn); this.children.forEach((child) => child.filter(filterFn)); }
+  map(mapFn) { mapFn(this); this.children.forEach((child) => child.map(mapFn)); }
 
   static fromEntries(entries) {
     const trie = new FileTrieNode([], null);
@@ -88,20 +69,25 @@ class FileTrieNode {
   }
 }
 
-// ===== ИЗМЕНЕНО: клиентская функция сортировки =====
 const defaultSortFn = (a, b) => {
+  if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
   const aOrder = a.isFolder ? a.folderOrder : a.noteOrder;
   const bOrder = b.isFolder ? b.folderOrder : b.noteOrder;
-  const aHas = typeof aOrder === "number" && Number.isFinite(aOrder);
-  const bHas = typeof bOrder === "number" && Number.isFinite(bOrder);
-  if (aHas && !bHas) return -1;
-  if (!aHas && bHas) return 1;
-  if (aHas && bHas && aOrder !== bOrder) return aOrder - bOrder;
-  if (a.isFolder !== b.isFolder) return a.isFolder ? -1 : 1;
+  const aHasOrder = typeof aOrder === "number" && Number.isFinite(aOrder);
+  const bHasOrder = typeof bOrder === "number" && Number.isFinite(bOrder);
+  if (aHasOrder && !bHasOrder) return -1;
+  if (!aHasOrder && bHasOrder) return 1;
+  if (aHasOrder && bHasOrder && aOrder !== bOrder) return aOrder - bOrder;
   return a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: "base" });
 };
 
-const defaultFilterFn = (node) => node.slugSegment !== "tags";
+// draft:true on an index.md does not hide its folder.
+// Ordinary draft pages are excluded from the tree.
+const defaultFilterFn = (node) => {
+  if (node.slugSegment === "tags") return false;
+  if (node.isFolder) return true;
+  return node.data?.frontmatter?.draft !== true;
+};
 
 function processTrie(trie, sortFn, filterFn, mapFn) {
   if (filterFn) trie.filter(filterFn);
@@ -110,7 +96,6 @@ function processTrie(trie, sortFn, filterFn, mapFn) {
   return trie;
 }
 
-// Используем штатные шаблоны Quartz Explorer, сохраняя исходное оформление.
 function renderTree(node, container, currentSlug, folderBehavior, savedState) {
   const folderTemplate = document.getElementById("template-folder");
   const fileTemplate = document.getElementById("template-file");
@@ -122,10 +107,11 @@ function renderTree(node, container, currentSlug, folderBehavior, savedState) {
   if (node.isFolder) {
     const clone = folderTemplate.content.cloneNode(true);
     const folderContainer = clone.querySelector(".folder-container");
-    let folderButton = clone.querySelector(".folder-button");
+    const folderButton = clone.querySelector(".folder-button");
     const folderTitle = clone.querySelector(".folder-title");
     const folderOuter = clone.querySelector(".folder-outer");
     const contentUl = clone.querySelector(".content");
+
     if (folderTitle) folderTitle.textContent = node.displayName || node.slugSegment;
     if (folderContainer) folderContainer.dataset.folderpath = node.slug;
 
@@ -141,8 +127,13 @@ function renderTree(node, container, currentSlug, folderBehavior, savedState) {
     const isCollapsed = savedState[node.slug] !== undefined ? savedState[node.slug] : true;
     const current = simplifySlug(currentSlug);
     const folderPath = simplifySlug(node.slug);
-    if ((!isCollapsed || (folderPath && current.startsWith(folderPath))) && folderOuter) folderOuter.classList.add("open");
-    if (contentUl) node.children.forEach((child) => renderTree(child, contentUl, currentSlug, folderBehavior, savedState));
+    if ((!isCollapsed || (folderPath && current.startsWith(folderPath))) && folderOuter) {
+      folderOuter.classList.add("open");
+    }
+
+    if (contentUl) {
+      node.children.forEach((child) => renderTree(child, contentUl, currentSlug, folderBehavior, savedState));
+    }
     container.appendChild(clone);
   } else if (node.data) {
     const clone = fileTemplate.content.cloneNode(true);
@@ -160,10 +151,8 @@ function setupMobileExplorerToggle(explorer) {
   const mobileToggle = explorer.querySelector(".mobile-explorer");
   const desktopToggle = explorer.querySelector(".desktop-explorer");
   const quartzBody = document.querySelector("#quartz-body");
-
   const isMobile = () => window.matchMedia("(max-width: 800px)").matches;
 
-  // Штатная кнопка заголовка на десктопе сворачивает/разворачивает дерево.
   if (desktopToggle && desktopToggle.dataset.collapseInitialized !== "true") {
     desktopToggle.dataset.collapseInitialized = "true";
     desktopToggle.addEventListener("click", (event) => {
@@ -171,15 +160,11 @@ function setupMobileExplorerToggle(explorer) {
       event.preventDefault();
       const collapsed = explorer.classList.toggle("collapsed");
       desktopToggle.setAttribute("aria-expanded", String(!collapsed));
-      const content = explorer.querySelector(".explorer-content");
-      content?.setAttribute("aria-expanded", String(!collapsed));
+      explorer.querySelector(".explorer-content")?.setAttribute("aria-expanded", String(!collapsed));
     });
   }
 
-  if (!mobileToggle) return;
-
-  // Quartz SPA navigation may reuse existing DOM; avoid duplicate listeners.
-  if (mobileToggle.dataset.mobileToggleInitialized === "true") return;
+  if (!mobileToggle || mobileToggle.dataset.mobileToggleInitialized === "true") return;
   mobileToggle.dataset.mobileToggleInitialized = "true";
 
   const closeMenu = () => {
@@ -193,27 +178,20 @@ function setupMobileExplorerToggle(explorer) {
     mobileToggle.setAttribute("aria-expanded", "true");
   };
 
-  // На мобильных устройствах дерево закрыто при первой загрузке.
   if (isMobile()) closeMenu();
-
   mobileToggle.addEventListener("click", (event) => {
     if (!isMobile()) return;
     event.preventDefault();
     event.stopPropagation();
-    if (explorer.classList.contains("collapsed")) openMenu();
-    else closeMenu();
+    explorer.classList.contains("collapsed") ? openMenu() : closeMenu();
   });
 
-  // Закрываем мобильное меню после выбора страницы.
   explorer.addEventListener("click", (event) => {
     if (!isMobile()) return;
     const target = event.target;
-    if (target instanceof Element && target.closest(".explorer-content a")) {
-      closeMenu();
-    }
+    if (target instanceof Element && target.closest(".explorer-content a")) closeMenu();
   });
 
-  // При переходе на десктоп возвращаем обычный вид.
   window.addEventListener("resize", () => {
     if (!isMobile()) {
       explorer.classList.remove("collapsed");
@@ -230,6 +208,7 @@ async function setupExplorer(event) {
   const explorers = document.querySelectorAll(".explorer");
   if (!explorers.length) return;
   explorers.forEach(setupMobileExplorerToggle);
+
   try {
     const url = resolveBasePath("static/contentIndex.json");
     const response = await fetch(url);
@@ -242,22 +221,40 @@ async function setupExplorer(event) {
     for (const explorer of explorers) {
       const trie = FileTrieNode.fromEntries(entries);
       let orderMap = {};
-      try { orderMap = JSON.parse(explorer.dataset.orderMap || "{}"); } catch (e) { console.warn("[custom-explorer] Ошибка чтения order-map", e); }
+      try {
+        orderMap = JSON.parse(explorer.dataset.orderMap || "{}");
+      } catch (error) {
+        console.warn("[custom-explorer] Ошибка чтения order-map", error);
+      }
+
       trie.map((node) => {
         const path = node.slugSegments.join("/");
         const fileSlug = node.data?.slug || path;
-        node.noteOrder = orderMap[fileSlug]?.noteOrder;
-        node.folderOrder = (orderMap[path] || orderMap[path + "/index"])?.folderOrder;
+        if (node.isFolder) {
+          const folderMeta = orderMap[path] || orderMap[path + "/index"];
+          node.folderOrder = folderMeta?.folderOrder ?? node.folderOrder;
+        } else {
+          const noteMeta = orderMap[fileSlug];
+          node.noteOrder = noteMeta?.noteOrder ?? node.noteOrder;
+        }
       });
-      processTrie(trie, defaultSortFn, defaultFilterFn, undefined);
 
+      processTrie(trie, defaultSortFn, defaultFilterFn, undefined);
       const ul = explorer.querySelector(".explorer-ul");
       if (!ul) continue;
       ul.replaceChildren();
+
       const savedState = {};
       try {
-        if (explorer.dataset.savestate !== "false") JSON.parse(localStorage.getItem("fileTree") || "[]").forEach((item) => { savedState[item.path] = item.collapsed; });
-      } catch (e) { console.warn("[custom-explorer] Ошибка загрузки состояния папок", e); }
+        if (explorer.dataset.savestate !== "false") {
+          JSON.parse(localStorage.getItem("fileTree") || "[]").forEach((item) => {
+            savedState[item.path] = item.collapsed;
+          });
+        }
+      } catch (error) {
+        console.warn("[custom-explorer] Ошибка загрузки состояния папок", error);
+      }
+
       trie.children.forEach((child) => renderTree(child, ul, currentSlug, explorer.dataset.behavior || "link", savedState));
       explorer.querySelector(".mobile-explorer")?.classList.remove("hide-until-loaded");
 
@@ -266,20 +263,29 @@ async function setupExplorer(event) {
           const folder = control.closest(".folder-container");
           const outer = folder?.nextElementSibling;
           if (!folder || !outer || (explorer.dataset.behavior === "link" && control.classList.contains("folder-button"))) return;
-          evt.preventDefault(); evt.stopPropagation(); outer.classList.toggle("open");
+          evt.preventDefault();
+          evt.stopPropagation();
+          outer.classList.toggle("open");
+
           if (explorer.dataset.savestate !== "false") {
             try {
               const saved = JSON.parse(localStorage.getItem("fileTree") || "[]");
-              const path = folder.dataset.folderpath; const collapsed = !outer.classList.contains("open");
-              const i = saved.findIndex((item) => item.path === path);
-              if (i >= 0) saved[i].collapsed = collapsed; else saved.push({ path, collapsed });
+              const path = folder.dataset.folderpath;
+              const collapsed = !outer.classList.contains("open");
+              const index = saved.findIndex((item) => item.path === path);
+              if (index >= 0) saved[index].collapsed = collapsed;
+              else saved.push({ path, collapsed });
               localStorage.setItem("fileTree", JSON.stringify(saved));
-            } catch (e) { console.warn(e); }
+            } catch (error) {
+              console.warn(error);
+            }
           }
         });
       });
     }
-  } catch (error) { console.error("[custom-explorer] Ошибка построения дерева:", error); }
+  } catch (error) {
+    console.error("[custom-explorer] Ошибка построения дерева:", error);
+  }
 }
 
 document.addEventListener("nav", setupExplorer);
