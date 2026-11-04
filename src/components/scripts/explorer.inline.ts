@@ -70,22 +70,16 @@ class FileTrieNode {
 }
 
 const defaultSortFn = (a, b) => {
-  // Notes precede folders at every level, not only at the root.
+  // Notes stay above folders at the root and inside every nested folder.
   if (a.isFolder !== b.isFolder) return a.isFolder ? 1 : -1;
-
   const aOrder = a.isFolder ? a.folderOrder : a.noteOrder;
   const bOrder = b.isFolder ? b.folderOrder : b.noteOrder;
   const aHasOrder = typeof aOrder === "number" && Number.isFinite(aOrder);
   const bHasOrder = typeof bOrder === "number" && Number.isFinite(bOrder);
-
   if (aHasOrder && !bHasOrder) return -1;
   if (!aHasOrder && bHasOrder) return 1;
   if (aHasOrder && bHasOrder && aOrder !== bOrder) return aOrder - bOrder;
-
-  return a.displayName.localeCompare(b.displayName, undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
+  return a.displayName.localeCompare(b.displayName, undefined, { numeric: true, sensitivity: "base" });
 };
 
 // draft:true on an index.md does not hide its folder.
@@ -222,6 +216,16 @@ async function setupExplorer(event) {
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${url}`);
     const raw = await response.json();
     const contentData = raw.content || raw;
+
+    // This JSON is emitted by FolderOrderEmitter from source index.md files,
+    // including drafts removed from the published content index.
+    let generatedFolderOrder = {};
+    try {
+      const orderResponse = await fetch(resolveBasePath("static/folder-order.json"));
+      if (orderResponse.ok) generatedFolderOrder = await orderResponse.json();
+    } catch (error) {
+      console.warn("[custom-explorer] Не удалось загрузить folder-order.json", error);
+    }
     const entries = Object.entries(contentData).map(([slug, entry]) => [slug, { ...entry, slug: entry.slug || slug }]);
     const currentSlug = String(event?.detail?.url || window.location.pathname).replace(/^\/+/, "").replace(/\/$/, "");
 
@@ -239,7 +243,11 @@ async function setupExplorer(event) {
         const fileSlug = node.data?.slug || path;
         if (node.isFolder) {
           const folderMeta = orderMap[path] || orderMap[path + "/index"];
-          node.folderOrder = folderMeta?.folderOrder ?? node.folderOrder;
+          const generatedOrder = generatedFolderOrder[path];
+          node.folderOrder =
+            (typeof generatedOrder === "number" ? generatedOrder : undefined) ??
+            folderMeta?.folderOrder ??
+            node.folderOrder;
         } else {
           const noteMeta = orderMap[fileSlug];
           node.noteOrder = noteMeta?.noteOrder ?? node.noteOrder;

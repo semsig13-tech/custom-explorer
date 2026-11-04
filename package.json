@@ -85,7 +85,7 @@
   "quartz": {
     "name": "explorer",
     "displayName": "Explorer",
-    "category": "component",
+    "category": ["component", "emitter"],
     "version": "1.0.0",
     "quartzVersion": ">=5.0.0",
     "dependencies": [],

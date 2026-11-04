@@ -7,8 +7,6 @@ import OverflowListFactory from "./OverflowList";
 import { classNames } from "../util/lang";
 import { i18n } from "../i18n";
 import style from "./styles/explorer.scss";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import * as path from "node:path";
 // @ts-expect-error - Inline script loaded as text by esbuild plugin
 import script from "./scripts/explorer.inline.ts";
 
@@ -35,7 +33,7 @@ export interface ExplorerOptions {
 }
 
 const defaultSortFn = (a: FileTrieNode, b: FileTrieNode): number => {
-  // At every tree level, notes must be listed before child folders.
+  // Notes are always above folders at every depth of the tree.
   if (a.isFolder !== b.isFolder) return a.isFolder ? 1 : -1;
 
   const aOrder = a.isFolder ? a.folderOrder : a.noteOrder;
@@ -69,99 +67,35 @@ function concatenateResources(...resources: (string | undefined)[]): string {
   return resources.filter((r): r is string => !!r).join("\n");
 }
 
-type OrderEntry = { noteOrder?: number; folderOrder?: number };
-
-let cachedFolderOrderMap: Record<string, OrderEntry> | undefined;
-
-function readFolderOrderFromIndex(filePath: string): number | undefined {
-  try {
-    const source = readFileSync(filePath, "utf8");
-    const frontmatter = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\s*\r?\n|$)/);
-    if (!frontmatter) return undefined;
-
-    // folderOrder is deliberately read only from the YAML frontmatter of index.md.
-    const yaml = frontmatter[1] ?? "";
-    const match = yaml.match(/^\s*folderOrder\s*:\s*(-?(?:\d+\.?\d*|\.\d+))\s*(?:#.*)?$/m);
-    if (!match) return undefined;
-
-    const value = Number(match[1]);
-    return Number.isFinite(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function scanFolderOrderFiles(contentDirectory: string): Record<string, OrderEntry> {
-  const result: Record<string, OrderEntry> = {};
-
-  const visit = (directory: string, relativeDirectory: string) => {
-    let entries;
-    try {
-      entries = readdirSync(directory, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
-      const absolutePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        const relativePath = relativeDirectory
-          ? `${relativeDirectory}/${entry.name}`
-          : entry.name;
-        visit(absolutePath, relativePath);
-      } else if (entry.isFile() && entry.name.toLowerCase() === "index.md" && relativeDirectory) {
-        const folderOrder = readFolderOrderFromIndex(absolutePath);
-        if (folderOrder !== undefined) {
-          const slug = relativeDirectory
-            .split("/")
-            .map((segment) =>
-              segment
-                .replace(/&/g, "-and-")
-                .replace(/\s/g, "-")
-                .replace(/%/g, "-percent")
-                .toLowerCase(),
-            )
-            .join("/");
-          result[slug] = { folderOrder };
-        }
-      }
-    }
-  };
-
-  if (statSync(contentDirectory).isDirectory()) visit(contentDirectory, "");
-  return result;
-}
-
-function getFolderOrderMap(): Record<string, OrderEntry> {
-  if (cachedFolderOrderMap) return cachedFolderOrderMap;
-
-  const contentDirectory = path.join(process.cwd(), "content");
-  try {
-    cachedFolderOrderMap = scanFolderOrderFiles(contentDirectory);
-  } catch {
-    cachedFolderOrderMap = {};
-  }
-  return cachedFolderOrderMap;
-}
-
 function buildOrderMap(allFiles: any[]) {
-  const map: Record<string, OrderEntry> = { ...getFolderOrderMap() };
+  return allFiles.reduce(
+    (
+      map: Record<string, { noteOrder?: number; folderOrder?: number }>,
+      file: any,
+    ) => {
+      const slug = String(file.slug ?? "").replace(/^\/+|\/+$/g, "");
+      const fm = file.frontmatter ?? {};
+      if (!slug) return map;
 
-  for (const file of allFiles) {
-    const slug = String(file.slug ?? "").replace(/^\/+|\/+$/g, "");
-    const fm = file.frontmatter ?? {};
-    if (!slug) continue;
+      // folderOrder is read from index.md regardless of draft: true.
+      if (slug === "index" || slug.endsWith("/index")) {
+        const folderSlug = slug.replace(/(^|\/)index$/, "");
+        if (typeof fm.folderOrder === "number" && Number.isFinite(fm.folderOrder)) {
+          map[folderSlug] = {
+            ...map[folderSlug],
+            folderOrder: fm.folderOrder,
+          };
+        }
+        return map;
+      }
 
-    // Ordinary notes only: noteOrder is never mixed with folderOrder.
-    if (slug !== "index" && !slug.endsWith("/index")) {
       if (typeof fm.noteOrder === "number" && Number.isFinite(fm.noteOrder)) {
         map[slug] = { ...map[slug], noteOrder: fm.noteOrder };
       }
-    }
-  }
-
-  return map;
+      return map;
+    },
+    {},
+  );
 }
 
 export default ((userOpts?: Partial<ExplorerOptions>) => {
