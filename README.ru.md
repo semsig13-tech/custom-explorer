@@ -1,3 +1,5 @@
+[Русский](README.ru.md) | [English](README.md)
+
 # Custom Explorer для Quartz
 
 Плагин расширяет стандартный проводник Quartz: добавляет сортировку

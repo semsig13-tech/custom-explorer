@@ -1,3 +1,5 @@
+[English](README.md) | [Русский](README.ru.md)
+
 # Custom Explorer for Quartz
 
 Custom Explorer extends the standard Quartz explorer with YAML
