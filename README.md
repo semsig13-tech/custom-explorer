@@ -1,43 +1,107 @@
 # Custom Explorer for Quartz
 
-[English](README.md) · [Русский](README.ru.md)
-
-A customized file-tree and navigation component for [Quartz](https://quartz.jzhao.xyz/). This repository is based on the Quartz Community Explorer and is intended for sites that need a familiar Explorer interface with custom ordering for folders and notes.
+Custom Explorer extends the standard Quartz explorer with YAML
+Frontmatter-based ordering for notes and folders, hierarchical
+navigation, and responsive mobile presentation.
 
 ## Features
 
-- Interactive file and folder tree.
-- Expand and collapse folders.
-- Mobile navigation toggle.
-- Quartz-style Explorer layout and styling.
-- Hide the `tags` directory from the tree by default.
-- Custom ordering using Markdown frontmatter:
-  - `folderOrder` in a folder's `index.md` controls the folder's position.
-  - `noteOrder` in a note controls that note's position.
-- Alphabetical sorting as a fallback when an order value is not set.
+-   Independent ordering of notes and folders at every tree level.
+-   Notes are ordered by `noteOrder`.
+-   Folders are ordered by `folderOrder`.
+-   Alphabetical fallback within each group when the corresponding field
+    is missing or is not numeric.
+-   Notes are always displayed before folders, regardless of the numeric
+    values in either field.
+-   Support for nested folders.
+-   `index.md` is excluded from the regular note list and is used as the
+    folder index and metadata source.
+-   Folders whose `index.md` has `draft: true` remain visible; their
+    `folderOrder` value is still used.
+-   Expandable and collapsible mobile navigation.
+-   Long folder and note titles wrap on mobile screens instead of
+    overflowing into the note content area.
 
-> **Note:** Ordering fields must be available to the Explorer at runtime. If your Quartz build excludes draft pages or omits frontmatter fields from its content index, the plugin may need a build-time metadata source for those values.
+## Sorting behavior
 
-## Requirements
+Notes and folders are sorted separately:
 
-- Quartz 5 or later (the plugin metadata declares `quartzVersion: ">=5.0.0"`).
-- Node.js 22 or later and npm 10.9 or later for local development/building.
+1.  Notes are displayed first.
+2.  Notes are sorted in ascending order by `noteOrder`.
+3.  Folders are displayed after notes.
+4.  Folders are sorted in ascending order by `folderOrder`.
+5.  If the relevant field is missing or is not a valid number, the item
+    falls back to alphabetical ordering by name within its group.
+
+`noteOrder` is compared only with other `noteOrder` values.
+`folderOrder` is compared only with other `folderOrder` values. The two
+fields are never compared against each other.
+
+### Note ordering
+
+Add `noteOrder` to the YAML Frontmatter of each note:
+
+``` yaml
+---
+title: Equipment connection
+noteOrder: 2
+---
+```
+
+``` yaml
+---
+title: Overview
+noteOrder: 1
+---
+```
+
+The "Overview" note will appear before "Equipment connection".
+
+### Folder ordering
+
+Set a folder's order in the YAML Frontmatter of that folder's own
+`index.md`:
+
+``` yaml
+---
+title: Equipment setup
+folderOrder: 2
+draft: true
+---
+```
+
+For another folder:
+
+``` yaml
+---
+title: Introduction
+folderOrder: 1
+draft: true
+---
+```
+
+The "Introduction" folder will appear before "Equipment setup".
+
+> Important: `folderOrder` belongs in the folder's own `index.md`, not
+> in the notes contained inside that folder. The `index.md` file is not
+> displayed as a separate note. A folder remains visible in the explorer
+> even when its `index.md` is marked `draft: true`.
+
+### Missing order values
+
+If `noteOrder` or `folderOrder` is absent or non-numeric, the item is
+sorted alphabetically within its own group. For a fully deterministic
+custom sequence, use numeric values for all items whose order matters.
 
 ## Installation
 
-From your Quartz project directory, run:
+The plugin is loaded as a Quartz plugin from GitHub.
 
-```bash
-npx quartz plugin add github:semsig13-tech/custom-explorer
-```
+Add the following source to your Quartz configuration
+(`quartz.config.ts` or the corresponding configuration file used by your
+build/version):
 
-If the plugin is already listed in your Quartz configuration, make sure it is enabled and that the installed plugin revision includes the changes you want to use.
-
-## Enable the plugin
-
-In `quartz.config.yaml`, configure the plugin in the component/plugin list used by your Quartz setup. For the Quartz Community plugin format, the entry looks like this:
-
-```yaml
+``` yaml
 - source: github:semsig13-tech/custom-explorer
   enabled: true
   layout:
@@ -45,73 +109,74 @@ In `quartz.config.yaml`, configure the plugin in the component/plugin list used 
     priority: 50
 ```
 
-If you are replacing the built-in/community Explorer, disable the other Explorer entry to avoid rendering two navigation trees.
+If your project uses a different plugin registration format, transfer
+these settings to the corresponding configuration section. Rebuild
+Quartz after changing the configuration.
 
-## Ordering folders and notes
+## Folder metadata generation
 
-Add numeric ordering values to the relevant Markdown frontmatter.
+Folder ordering uses a `folder-order.json` map generated by the
+`FolderOrderEmitter` from `folderOrder` values in folder `index.md`
+files.
 
-### Folder order
+Make sure `FolderOrderEmitter` is registered in the Quartz emitter
+pipeline and runs during the site build. The generated file should be
+available at:
 
-Put `folderOrder` in the `index.md` file inside the folder:
-
-```yaml
----
-title: Protection functions
-folderOrder: 2
----
+``` text
+public/static/folder-order.json
 ```
 
-### Note order
+(The actual output directory may differ depending on your Quartz
+configuration.)
 
-Put `noteOrder` in each note that should have a custom position:
+Example:
 
-```yaml
----
-title: Main protections
-noteOrder: 1
----
+``` json
+{
+  "guides": 1,
+  "guides/installation": 2,
+  "reference": 3
+}
 ```
 
-Lower numbers appear before higher numbers. Items without an order value use the fallback sort implemented by the plugin. Use numbers, not quoted strings (for example, `noteOrder: 2`, not `noteOrder: "2"`).
+Keys are folder slugs relative to the content root. Values are numeric
+`folderOrder` values. Nested folders use their full relative path with
+`/` separators.
 
-## Configuration options
+If the map is missing or values are not included, check that: -
+`FolderOrderEmitter` is registered; - `folderOrder` is present in the
+folder's `index.md` Frontmatter; - the value is numeric; - the source
+folder contains an `index.md` file.
 
-The component supports these options:
+## Mobile behavior
 
-| Option | Type | Description |
-|---|---|---|
-| `title` | `string` | Heading displayed above the Explorer. |
-| `folderDefaultState` | `"collapsed" \| "open"` | Initial folder state. |
-| `folderClickBehavior` | `"collapse" \| "link"` | Whether clicking a folder toggles it or navigates to its index page. |
-| `useSavedState` | `boolean` | Whether to remember folder state in browser storage. |
-| `sortFn` | function | Custom comparator for tree entries. |
-| `filterFn` | function | Custom filter for tree entries. |
-| `mapFn` | function | Custom transformation for tree entries. |
-| `order` | array | Order in which filtering, mapping, and sorting are applied. |
+On narrow screens, the explorer can be opened and closed using the
+mobile toggle. Long folder and note titles wrap onto multiple lines and
+remain inside the explorer panel instead of overlapping the main note
+area.
 
-Example override (for Quartz setups that expose plugin component options in TypeScript):
+## Build and verification
 
-```ts
-ExternalPlugin.Explorer({
-  title: "Documentation",
-  folderDefaultState: "collapsed",
-  folderClickBehavior: "link",
-  useSavedState: true,
-});
-```
+After installing or updating the plugin:
 
-Use the configuration mechanism supported by your installed Quartz version; the exact location of TypeScript overrides may differ between Quartz setups.
+1.  Run the site build using the workflow configured for your Quartz
+    project.
+2.  Confirm that the build completes successfully.
+3.  Check `static/folder-order.json` in the generated output.
+4.  Verify note and folder ordering at multiple nesting levels.
+5.  Test the mobile layout on a narrow viewport.
 
-## Development
+If the site is built with GitHub Actions, inspect the corresponding
+workflow run and refresh the published site after deployment.
 
-```bash
-npm install
-npm run build
-```
+## Repository
 
-Available checks are defined in `package.json`, including `npm run typecheck`, `npm run lint`, `npm run format`, and `npm test`.
+Source code and change history:\
+https://github.com/semsig13-tech/custom-explorer
 
-## Credits
+## Notes
 
-Based on the Explorer component from [quartz-community/explorer](https://github.com/quartz-community/explorer), adapted for custom documentation navigation and ordering.
+Frontmatter keys are case-sensitive in practice: use exactly `noteOrder`
+and `folderOrder`. Both fields must be top-level YAML Frontmatter
+properties, and ordering values must be numeric.
