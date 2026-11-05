@@ -490,25 +490,6 @@ async function setupExplorer(event) {
             orderMap,
           );
 
-          // Временная диагностика: показывает фактический путь папки
-          // и значение folderOrder, найденное для этого пути.
-          if (node.slugSegments.length > 1) {
-            const normalizedPath = normalizeFolderPath(path);
-            const lastSegment = normalizeFolderPath(node.slugSegment);
-
-            console.log("[custom-explorer][folder-order-debug]", {
-              path,
-              slug: node.slug,
-              normalizedPath,
-              foundOrder: folderOrder,
-              matchingKeys: Object.keys(generatedFolderOrder).filter(
-                (key) =>
-                  key === normalizedPath ||
-                  key.endsWith("/" + lastSegment),
-              ),
-            });
-          }
-
           if (typeof folderOrder === "number") {
             node.folderOrder = folderOrder;
           }
