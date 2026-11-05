@@ -9,10 +9,7 @@ import path from "node:path"
 /**
  * Emits folderOrder metadata from source index.md files.
  *
- * The folder slug is derived directly from the index.md source path.
- * This avoids relying on positional correspondence between ctx.allFiles
- * and ctx.allSlugs.
- *
+ * Folder slugs are derived directly from source paths.
  * Draft index.md files are intentionally included.
  */
 export const FolderOrderEmitter: QuartzEmitterPlugin = () => ({
@@ -28,18 +25,16 @@ export const FolderOrderEmitter: QuartzEmitterPlugin = () => ({
     for (const file of files) {
       const sourcePath = String(file).replace(/\\/g, "/")
 
-      // Process only folder index files.
       if (!/(^|\/)index\.md$/i.test(sourcePath)) {
         continue
       }
 
-      // Derive the slug from the actual source path.
       const fileSlug = slugifyFilePath(sourcePath as FilePath)
+
       const folderSlug = String(fileSlug)
         .replace(/^\/+|\/+$/g, "")
         .replace(/\/index$/i, "")
 
-      // Do not add the root index.
       if (!folderSlug || folderSlug === "index") {
         continue
       }
@@ -62,7 +57,6 @@ export const FolderOrderEmitter: QuartzEmitterPlugin = () => ({
           continue
         }
 
-        // Read only a top-level numeric folderOrder value.
         const orderMatch = frontmatterContent.match(
           /^folderOrder\s*:\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*(?:#.*)?$/m,
         )
@@ -102,5 +96,8 @@ export const FolderOrderEmitter: QuartzEmitterPlugin = () => ({
     console.log(
       `[custom-explorer] Сформирована карта folderOrder: ${Object.keys(folderOrder).length}`,
     )
+
+    // Quartz 5 requires an emitter to return the paths it created.
+    return [outputFile as FilePath]
   },
 })
